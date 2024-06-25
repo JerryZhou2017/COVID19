@@ -1,0 +1,154 @@
+---
+title: "Final Project 2 Covid 19 Report"
+author: "jz"
+date: "2024-06-24"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## About COVID-19
+
+COVID-19 (coronavirus disease 2019) is a disease caused by a virus named SARS-CoV-2. It can be very contagious and spreads quickly. Over one million people have died from COVID-19 in the United States.  Also see <https://www.cdc.gov/coronavirus/2019-ncov/your-health/about-covid-19.html>. 
+
+This report is mainly focus on the worst and least impacted counties in California. It contains a model about cases per thousand and death per thousand for Los Angeles county. The data for the report comes from COVID 19 data hosted at Johns Hopkins Github site.  In order to achieve reproducibility, this report shows each step including how to import, tidy and analyze COVID 19 data. The data contains COVID-19 global and US data sets as well as their related links and file names.
+
+## Step 0: Import Library
+
+```{r library, message=FALSE, warning=FALSE}
+# install.packages("tidyverse")
+library(tidyverse)
+library(lubridate)
+```
+
+## Step 1: Importing Data 
+```{r}
+## read_csv() reads comma delimited files, message=FALSE, warning=FALSE}
+url_in <-"https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names    <-c("time_series_covid19_confirmed_global.csv",
+                "time_series_covid19_deaths_global.csv",
+                "time_series_covid19_deaths_US.csv", 
+                "time_series_covid19_confirmed_US.csv")
+urls           <- str_c(url_in,file_names)
+urls
+global_cases  <-read_csv(urls[1])
+global_deaths <-read_csv(urls[2])
+US_cases      <-read_csv(urls[4])
+US_deaths     <-read_csv(urls[3])
+```
+## Step 2: Transform Covid-19 Data 
+
+### Step 2.1: Transform global Covid-19 Data 
+```{r} 
+# get global data
+global_cases <-global_cases %>% pivot_longer(cols = -c(`Province/State`,`Country/Region`,Lat,Long),names_to ="date", values_to ="cases") %>%  select(-c(Lat,Long))
+
+global_deaths <-global_deaths %>% pivot_longer(cols = -c(`Province/State`,`Country/Region`,Lat,Long),names_to ="date", values_to ="deaths") %>%  select(-c(Lat,Long))
+
+global <-global_cases %>% full_join(global_deaths) %>% rename(Country_Region=`Country/Region`,Province_State =`Province/State`) %>% mutate(date = mdy(date))
+
+head(global)
+tail(global)
+summary(global)
+```
+
+###  Step 2.2 : Transform US Covid-19 Data 
+
+```{r} 
+
+US_deaths <-US_deaths %>% pivot_longer (cols = -(UID:Population),
+                                        names_to ="date",
+                                        values_to = "deaths" ) %>%
+     select(Admin2:deaths) %>%
+     mutate (date =mdy(date))  %>%
+     select (-c(Lat,Long_))
+     
+ 
+US_cases <-US_cases %>% pivot_longer (cols = -(UID:Combined_Key),
+                                        names_to ="date",
+                                        values_to = "cases" ) %>%
+     select(Admin2:cases) %>%
+     mutate (date =mdy(date))  %>%
+     select (-c(Lat,Long_))
+
+US <-US_cases %>% full_join(US_deaths)
+
+```
+
+### Step 2.3: Adding each country's polulation to global data
+```{r}
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(uid_lookup_url)
+global  <-global %>% left_join(uid,by = c("Province_State","Country_Region")) %>%
+          select (-c(UID,FIPS)) %>% 
+          select (Province_State, Country_Region,date,cases,deaths,Population, Combined_Key)
+
+```
+
+## Step 3: Visualzie California data 
+```{r}
+CA <-US %>% filter(`Province_State`=="California") %>%
+      group_by ( Province_State,Admin2) %>% 
+      summarize(cases = max(cases), deaths = max(deaths),Population = unique(Population))  %>% 
+      mutate(death_per_thou = deaths * 1000/Population ) %>%
+      mutate(cases_per_thou = cases * 1000/Population ) %>%
+      mutate(deaths_per_mill = cases * 100000/Population) %>%
+      select(Province_State, Admin2,cases,deaths,death_per_thou,cases_per_thou,deaths_per_mill,Population) %>% 
+      ungroup()
+
+worst_CA <- CA %>% filter(death_per_thou >3.5 ) %>% filter(`Admin2` != "Unassigned")
+g <- ggplot(data=worst_CA, mapping=aes(x = Admin2, y=death_per_thou)) +
+  geom_point(size = 5) +
+  geom_line(color="red")
+
+
+best_CA <- CA %>% filter(death_per_thou <1.2)
+
+g <- ggplot(data=best_CA, mapping=aes(x = Admin2, y=death_per_thou)) +
+  geom_point(size = 5) +
+  geom_line(color="red")
+g
+```
+### Step 3.1: Modling Los Angeles data
+
+```{r, message=FALSE, warning=FALSE}
+
+LA_daily <-US %>% filter(`Admin2` =="Los Angeles") %>%
+      mutate(death_per_thou = deaths * 1000/Population) %>%
+      mutate(cases_per_thou = cases * 1000/Population ) %>%
+      ##select Admin2,cases,deaths,death_per_thou,cases_per_thou,Population) %>% 
+      ungroup()
+
+
+mod <- lm(death_per_thou  ~ cases_per_thou, data=LA_daily )
+summary(mod)  
+Us_tot_w_pred <- LA_daily  %>% mutate (pred =predict(mod))
+Us_tot_w_pred %>% ggplot() +
+geom_point(aes(x = cases_per_thou, y= death_per_thou), color ="blue")+
+geom_point(aes(x = cases_per_thou, y= pred), color ="red")
+
+```
+## Step 4: Identity Bias
+
+I would like to address two areas of biases. One is the data. Another is interpretation of the data. 
+From JH site <https://ictr.johnshopkins.edu/wp-content/uploads/CROWN-Registry-Bead-20200512.pdf>,it has a section of 
+"Potential Biases/issues ‐ associated generally with registrie" which helps to understand data related biases such as measurement error, missing data and much more stated in the article. 
+
+Another is the analysis focus of this report: California and Los Angeles area.  I am more familiar with LA and wanted to have a close look on LA data to understand the areas worst impacted by Covid 19. To eliminate my own bias and not to fall into my person experience, the analysis starts from Californa and get two groups of counties with two opposite characters.
+
+This way I can have more balanced views.  I have also viewed different articles about the LA area COVID 19 analysis and had cross-referenced on their results. It seems my result is close to the other sources as LA county. 
+
+
+
+## Additional Resources
+
+* [LA County COVID-19 Data](http://publichealth.lacounty.gov/media/coronavirus/data/)
+* [Los Angeles County, California coronavirus cases and deaths](https://usafacts.org/visualizations/coronavirus-covid-19-spread-map/state/california/county/los-angeles-county/)
+* [Even in 2022, L.A. COVID death rate is worse than car crashes. Here’s why](https://usafacts.org/visualizations/coronavirus-covid-19-spread-map/state/california/county/los-angeles-county/)
+* [COVID-19 Mortality Rates in Los Angeles County Among People Experiencing Homelessness, March 2020–February 2021](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9548447/)
+
+
