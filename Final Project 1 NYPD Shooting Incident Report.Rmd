@@ -1,0 +1,109 @@
+---
+title: "Final Project 1 NYPD Shooting Incident Report"
+author: "jz"
+date: "2024-06-24"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## About NYPD Shooting Incident data
+
+List of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year.
+
+This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. This data can be used by the public to explore the nature of shooting/criminal activity. Please refer to the attached data footnotes for additional information about this dataset. Also see https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Historic-/833y-fsy8/about_data
+
+This report is mainly focus on yearly trend and quarterly total incidents happened in NYC. It contains a model to find out a likelihood of different factors affecting shooting result. In order to achieve reproducibility, this report shows each step including how to import, tidy and analyze the data. 
+
+
+## Step 0: Import Library
+
+```{r library, message=FALSE, warning=FALSE}
+# install.packages("tidyverse")
+library(tidyverse)
+library(lubridate)
+```
+
+## Step 1: Importing Data 
+```{r}
+## read_csv() reads comma delimited files, message=FALSE, warning=FALSE}
+url_in <-"https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYPDdf      <-read_csv(url_in)
+
+```
+## Step 2: Transform and visualize Data 
+
+### Step 2.1: Transform and vdata to quarterly
+```{r} 
+
+NYPDdf$OCCUR_DAY = mdy(NYPDdf$OCCUR_DATE)
+NYPDdf$OCCUR_Quarter = quarters(NYPDdf$OCCUR_DAY)
+
+NYPD_by_quarter <-NYPDdf %>% 
+      group_by ( OCCUR_Quarter ) %>% 
+      count()
+
+g <- ggplot(NYPD_by_quarter , aes(x=OCCUR_Quarter,y=n)) +
+   geom_col() +
+  labs(title = "Quarterly Shooting in New York",
+       x = "Quarter",
+       y = "# of Incidents") +
+  theme_minimal()
+g
+
+```
+
+## Step 2.2: Visualize yearly data 
+```{r}
+NYPDdf$OCCUR_DAY = mdy(NYPDdf$OCCUR_DATE)
+NYPDdf$OCCUR_Year = year(NYPDdf$OCCUR_DAY)
+
+NYPD_by_year <-NYPDdf %>% 
+      group_by ( OCCUR_Year) %>% 
+      count()
+      
+
+tail(NYPDdf)
+g <- ggplot(NYPD_by_year , aes(x=OCCUR_Year,y=n)) +
+   geom_col() +
+  labs(title = "Yearly Shooting in New York?",
+       x = "Year",
+       y = "# of Incidents") +
+  theme_minimal()
+  
+g
+
+```
+
+## Step 3: Modling NYPD shooting  data
+
+Utilizing logistic regression model, the independent variables will be VIC_AGE_GROUP, VIC_SEX,
+VIC_RACE and BORO and dependent variable will be STATISTICAL_MURDER_FLAG. This can get an estimate for how much the age,
+gender, and race and boro of the victims will affect the shooting result.  
+
+```{r}
+
+mod <- glm(STATISTICAL_MURDER_FLAG ~ PERP_RACE + PERP_SEX + PERP_AGE_GROUP + BORO, data = NYPDdf, family = binomial)
+summary(mod)
+
+```
+
+## Step 4: Identify Bias
+
+I would like to address two areas of biases. One is the data. Another is interpretation of the data. 
+From NY City Controller site <https://comptroller.nyc.gov/newsroom/nypds-shotspotter-gunshot-detection-system-overwhelmingly-sends-officers-to-locations-where-no-confirmed-shooting-occurred-new-audit-uncovers/>, Comptroller Brad Lander stated. “The evidence shows that NYPD is wasting precious time and money on this technology and needs to do a better job managing its resources. Chasing down car backfires and construction noise does not make us safer.” which helps to understand the nature of criminal activity and shooting and limitation of ShotSpotter and much more stated in the article. 
+
+Another is the analysis focus of this report general trend yearly and quarterly. The analysis is totally based on the data.  
+ I have also viewed different articles about the same subject and tried to eliminate anything that is from my personal experience.
+
+
+## Additional Resources
+
+* [Comparing different models to forecast the number of mass shootings in the United States: An application of forecasting rare event time series data](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10292710/)
+* [Most alerts from the NYPD’s gunfire detection system are unconfirmed shootings, city audit finds](https://apnews.com/article/nypd-shotspotter-audit-new-york-police-402fe9ea02a13c002855d7821dcbd32c)
+
+
